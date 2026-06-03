@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D3.js Tutorial</title>
+
+  <!-- D3 v7 -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+
+  <style>
+    /* ── Reset & base ───────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      color: #222;
+      padding: 2rem;
+    }
+
+    h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+    p.subtitle { color: #666; margin-bottom: 2rem; }
+
+    /* ── Chart container ────────────────────────── */
+    #chart {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 1.5rem;
+      display: inline-block;
+    }
+
+    /* ── Bar styles ─────────────────────────────── */
+    .bar {
+      fill: steelblue;
+      transition: fill 0.2s;
+    }
+
+    circle:hover { stroke-width: 2; cursor: pointer; }
+
+    /* ── Axes ───────────────────────────────────── */
+    .axisX text { font-size: 0.50rem; fill: #555; }
+
+    /* ── Tooltip ────────────────────────────────── */
+    #tooltip {
+      position: fixed;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      padding: 0.4rem 0.7rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>D3.js Beeswarm Plot</h1>
+
+  <div id="chart"></div>
+  <div id="tooltip"></div>
+
+  <script>
+      // ── Dimensions ────────────────────────────────
+    const viewportWidth = window.innerWidth || 0
+    const margin = { top: 20, right: 50, bottom: 40, left: 50 };
+    const width  = viewportWidth - margin.left - margin.right;
+    const height = 420 - margin.top  - margin.bottom;
+
+    // ── Data Parse ───────────────────────────────────────
+    const data = d3.csv("data/flower-blooms.csv", (d) => {
+      const parseTime = d3.utcParse("%B %Y");
+      const parsedDate = parseTime(d.bloom_month)
+      return {
+          bloom_month: parsedDate, // convert "Year" column to Date
+          flower: d.flower,
+          family: d.family,
+          count : +d.count
+      };
+    }).then(function (data) {
+
+    // ── After loading data ──────────────────────────────────
+
+    // ── Utilities ──────────────────────────────────
+
+    const uniqueSpecies = [...new Set(data.map((d) => d.family))];
+
+    // hue i * (360 / 21) angle of the color circle – saturation (0 – 1) – lightness (0 – 1)
+    const colorSelection = d3.range(uniqueSpecies.length).map((_, i) => {
+      console.log(i * (360 / 21))
+      return d3.hsl(i * (360 / 21), 0.8, 0.8).formatHex()
+    })
+    
+    console.log(uniqueSpecies)
+    
+    // ── SVG root ──────────────────────────────────
+      const svg = d3.select("#chart")
+        .append("svg")
+          .attr("width",  width)
+          .attr("height", height + margin.top  + margin.bottom)
+        .append("g")
+          .attr("transform", `translate(${0},${margin.top})`);
+
+    // ── Scales ──────────────────────────────────────
+
+    const x = d3.scaleTime()
+      .domain(d3.extent(data.map(d => d.bloom_month)))
+      .range([margin.left, width - margin.right])
+
+    
+    const y = d3.scaleBand()
+      .domain(uniqueSpecies)
+      .range([0, height])
+      .padding(0.25)
+      
+
+    const radius = d3.scaleLinear()
+      .domain(d3.extent(data.map(d => d.count)))
+      .range([1, 10])
+
+    const color = d3.scaleOrdinal()
+      .domain(uniqueSpecies)
+      .range(colorSelection)
+
+    // ── Axes ──────────────────────────────────────
+
+    svg.append("g")
+      .attr("class", "axisX")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x))
+
+    const yTicks = uniqueSpecies.map(d => y(d))
+
+    svg.selectAll(".axisY")
+      .data(yTicks)
+      .join("line")
+      .attr("x1",  margin.left)
+      .attr("x2", width - margin.right)
+      .attr("y1", d => d)
+      .attr("y2", d => d)
+      .attr("stroke", "gray")
+      .attr("stroke-width", 0.5)
+    
+    svg.selectAll(".axisY")
+      .data(uniqueSpecies)
+      .join("text")
+      .attr("x",  margin.left)
+      .attr("y", (d, i) => yTicks[i] - 5)
+      .text((d) => d)
+      .attr("font-size", 10)
+
+
+    // ── Simulation ───────────────────────────
+
+    const nodes = data.slice()
+
+    const sim = d3.forceSimulation(nodes)
+      .force("x", d3.forceX(d => x(d.bloom_month)))
+      .force("y", d3.forceY(d => y(d.family)))
+      .force("collide", d3.forceCollide(d => radius(d.count) + 1))
+      .stop()
+      for (let i = 0; i < 300; i++) sim.tick();  
+
+    // ── Points ────────────────────────────────────── 
+
+    const node = svg.selectAll("circle")
+      .data(nodes)
+      .join("circle")
+      .attr("cx", d => d.x)
+      .attr("cy", d => d.y)
+      .attr("r", d => radius(d.count))
+      .attr("fill", d => color(d.family))
+      .attr("stroke", "black")
+      .on("mouseover", showTooltip)
+      .on("mousemove", moveTooltip)
+      .on("mouseleave", hideTooltip);
+
+
+    sim.on("tick", () => {
+        node
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
+    })
+
+      // ── Tooltip helpers ───────────────────────────
+    const tooltip = d3.select("#tooltip");
+
+    function showTooltip(event, d) {
+      tooltip
+        .style("opacity", 1)
+        .html(`<strong>${d.flower}</strong>: ${d.count}`);
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      tooltip
+        .style("left", (event.clientX + 12) + "px")
+        .style("top",  (event.clientY - 28) + "px");
+    }
+
+    function hideTooltip() {
+      tooltip.style("opacity", 0);
+    }
+
+    })
+
+  </script>
+
+</body>
+</html>
